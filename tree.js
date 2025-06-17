@@ -30,6 +30,7 @@ const args = process.argv.slice(2);
 let maxDepth = Infinity;
 let showHelp = false;
 let showMethods = true;
+let showAllMethods = false; // New flag for showing all methods vs just exported ones
 let customRootDir = process.cwd(); // Default to current working directory
 let positionalArgs = [];
 
@@ -52,6 +53,8 @@ for (let i = 0; i < args.length; i++) {
       }
     } else if (arg === '--no-methods') {
       showMethods = false;
+    } else if (arg === '--all-methods') {
+      showAllMethods = true;
     }
   } else {
     // Collect positional arguments
@@ -83,6 +86,7 @@ Arguments:
 Options:
   --depth, -d     Maximum directory depth to scan (default: unlimited)
   --no-methods    Don't show methods under files
+  --all-methods   Show all methods (default: only exported methods)
   --help, -h      Show help
 `);
   process.exit(0);
@@ -133,7 +137,7 @@ function loadConfig(scanDirectory) {
 }
 
 // Function to extract method signatures from JS file (simplified version)
-function extractMethodSignatures(filePath) {
+function extractMethodSignatures(filePath, includeAllMethods = false) {
   try {
     const fileContent = fs.readFileSync(filePath, 'utf8');
     const signatures = [];
@@ -150,19 +154,25 @@ function extractMethodSignatures(filePath) {
       // Walk the AST to find function declarations
       walk(ast, {
         FunctionDeclaration(node) {
-          if (node.id && node.id.name) {
+          // Only include if we want all methods, or skip non-exported functions
+          if (includeAllMethods && node.id && node.id.name) {
             const params = extractParams(node.params);
-            signatures.push(`${node.id.name}(${params})`);
+            const prefix = node.async ? 'async ' : '';
+            signatures.push(`${prefix}${node.id.name}(${params})`);
           }
         },
         MethodDefinition(node) {
-          const methodName = node.key.name || node.key.value;
-          const params = extractParams(node.value.params);
-          const prefix = node.value.async ? 'async ' : '';
-          signatures.push(`${prefix}${methodName}(${params})`);
+          // Only include class methods if we want all methods
+          if (includeAllMethods) {
+            const methodName = node.key.name || node.key.value;
+            const params = extractParams(node.value.params);
+            const prefix = node.value.async ? 'async ' : '';
+            signatures.push(`${prefix}${methodName}(${params})`);
+          }
         },
         VariableDeclarator(node) {
-          if (node.id && node.id.name && node.init &&
+          // Only include variable function assignments if we want all methods
+          if (includeAllMethods && node.id && node.id.name && node.init &&
              (node.init.type === 'ArrowFunctionExpression' || node.init.type === 'FunctionExpression')) {
             const params = extractParams(node.init.params);
             const prefix = node.init.async ? 'async ' : '';
@@ -175,6 +185,18 @@ function extractMethodSignatures(filePath) {
             const params = extractParams(node.declaration.params);
             const prefix = node.declaration.async ? 'async ' : '';
             signatures.push(`export ${prefix}${name}(${params})`);
+          } else if (node.declaration && node.declaration.type === 'VariableDeclaration') {
+            // Handle export const myFunc = () => {}
+            node.declaration.declarations.forEach(declarator => {
+              if (declarator.init &&
+                  (declarator.init.type === 'ArrowFunctionExpression' ||
+                   declarator.init.type === 'FunctionExpression')) {
+                const name = declarator.id.name;
+                const params = extractParams(declarator.init.params);
+                const prefix = declarator.init.async ? 'async ' : '';
+                signatures.push(`export ${prefix}${name}(${params})`);
+              }
+            });
           }
         },
         ExportDefaultDeclaration(node) {
@@ -183,6 +205,11 @@ function extractMethodSignatures(filePath) {
             const params = extractParams(node.declaration.params);
             const prefix = node.declaration.async ? 'async ' : '';
             signatures.push(`export default ${prefix}${name}(${params})`);
+          } else if (node.declaration.type === 'ArrowFunctionExpression' ||
+                     node.declaration.type === 'FunctionExpression') {
+            const params = extractParams(node.declaration.params);
+            const prefix = node.declaration.async ? 'async ' : '';
+            signatures.push(`export default ${prefix}function(${params})`);
           }
         }
       });
@@ -190,7 +217,7 @@ function extractMethodSignatures(filePath) {
       return signatures;
     } catch (parseError) {
       // Fallback to regex-based extraction
-      return extractMethodsFromRawContent(fileContent);
+      return extractMethodsFromRawContent(fileContent, includeAllMethods);
     }
   } catch (error) {
     return [];
@@ -221,23 +248,72 @@ function extractParams(params) {
 }
 
 // Fallback method extraction using regex
-function extractMethodsFromRawContent(fileContent) {
+function extractMethodsFromRawContent(fileContent, includeAllMethods = false) {
   const methodSignatures = [];
 
-  // Match function declarations
-  const functionRegex = /(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g;
-  let match;
+  if (includeAllMethods) {
+    // Match all function declarations
+    const functionRegex = /(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g;
+    let match;
 
-  while ((match = functionRegex.exec(fileContent)) !== null) {
-    const [_, name, params] = match;
-    methodSignatures.push(`${name}(${params})`);
-  }
+    while ((match = functionRegex.exec(fileContent)) !== null) {
+      const [fullMatch, name, params] = match;
+      const isExported = fullMatch.includes('export');
+      const prefix = isExported ? 'export ' : '';
+      methodSignatures.push(`${prefix}${name}(${params})`);
+    }
 
-  // Match arrow functions
-  const arrowRegex = /(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>/g;
-  while ((match = arrowRegex.exec(fileContent)) !== null) {
-    const [_, name, params] = match;
-    methodSignatures.push(`${name}(${params})`);
+    // Match arrow functions
+    const arrowRegex = /(?:export\s+(?:default\s+)?)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>/g;
+    while ((match = arrowRegex.exec(fileContent)) !== null) {
+      const [fullMatch, name, params] = match;
+      const isExported = fullMatch.includes('export');
+      const prefix = isExported ? 'export ' : '';
+      methodSignatures.push(`${prefix}${name}(${params})`);
+    }
+  } else {
+    // Only match exported functions
+    const exportedFunctionRegex = /export\s+(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g;
+    let match;
+
+    while ((match = exportedFunctionRegex.exec(fileContent)) !== null) {
+      const [fullMatch, name, params] = match;
+      const isDefault = fullMatch.includes('default');
+      const isAsync = fullMatch.includes('async');
+      const asyncPrefix = isAsync ? 'async ' : '';
+      const exportPrefix = isDefault ? 'export default ' : 'export ';
+      methodSignatures.push(`${exportPrefix}${asyncPrefix}${name}(${params})`);
+    }
+
+    // Match exported arrow functions and function expressions
+    const exportedArrowRegex = /export\s+(?:default\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(async\s+)?\(([^)]*)\)\s*=>/g;
+    while ((match = exportedArrowRegex.exec(fileContent)) !== null) {
+      const [fullMatch, name, asyncKeyword, params] = match;
+      const isDefault = fullMatch.includes('default');
+      const asyncPrefix = asyncKeyword ? 'async ' : '';
+      const exportPrefix = isDefault ? 'export default ' : 'export ';
+      methodSignatures.push(`${exportPrefix}${asyncPrefix}${name}(${params})`);
+    }
+
+    // Match export { functionName } patterns
+    const exportListRegex = /export\s*\{\s*([^}]+)\s*\}/g;
+    while ((match = exportListRegex.exec(fileContent)) !== null) {
+      const exportList = match[1];
+      const names = exportList.split(',').map(name => name.trim().split(/\s+as\s+/)[0].trim());
+
+      // Try to find the function definitions for these exported names
+      names.forEach(name => {
+        const funcDefRegex = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(([^)]*)\\)|(?:const|let|var)\\s+${name}\\s*=\\s*(?:async\\s+)?\\(([^)]*)\\)\\s*=>`, 'g');
+        let funcMatch;
+        while ((funcMatch = funcDefRegex.exec(fileContent)) !== null) {
+          const params = funcMatch[1] || funcMatch[2] || '';
+          const isAsync = funcMatch[0].includes('async');
+          const asyncPrefix = isAsync ? 'async ' : '';
+          methodSignatures.push(`export ${asyncPrefix}${name}(${params})`);
+          break; // Only match the first occurrence
+        }
+      });
+    }
   }
 
   return methodSignatures;
@@ -349,7 +425,7 @@ function generateTree(dirPath, level = 0, relativePath = '', isLast = true, pref
         if (showMethods) {
           const ext = path.extname(itemPath);
           if (INCLUDE_EXTENSIONS.includes(ext) && (ext === '.js' || ext === '.mjs' || ext === '.cjs')) {
-            const methods = extractMethodSignatures(itemPath);
+            const methods = extractMethodSignatures(itemPath, showAllMethods);
             if (methods.length > 0) {
               const methodPrefix = prefix + (isLastItem ? '   ' : `${TREE_CHARS.VERTICAL}  `);
               methods.forEach((method, methodIndex) => {
