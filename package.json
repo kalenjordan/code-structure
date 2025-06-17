@@ -1,0 +1,22 @@
+{
+  "name": "code-structure",
+  "version": "1.0.0",
+  "description": "Code structure generator",
+  "type": "module",
+  "main": "run.js",
+  "bin": {
+    "code-structure": "./run.js"
+  },
+  "scripts": {
+    "generate-structure": "node run.js",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "acorn": "^8.11.3",
+    "acorn-walk": "^8.3.2",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.27.0"
+  }
+}
