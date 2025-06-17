@@ -5,7 +5,8 @@
   "type": "module",
   "main": "run.js",
   "bin": {
-    "code-structure": "./run.js"
+    "code-structure": "./run.js",
+    "code-structure-tree": "./tree.js"
   },
   "scripts": {
     "generate-structure": "node run.js",

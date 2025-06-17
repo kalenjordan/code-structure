@@ -136,7 +136,7 @@ const DEFAULT_CONFIG = {
 
 // Function to load configuration from JSON file
 function loadConfig(scanDirectory) {
-  const configPath = path.join(scanDirectory, 'codebase-structure-config.json');
+  const configPath = path.join(scanDirectory, '.code-structure.json');
 
   try {
     if (fs.existsSync(configPath)) {
