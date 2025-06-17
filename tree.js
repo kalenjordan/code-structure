@@ -90,15 +90,8 @@ Options:
 
 // Default configuration (fallback if config file is not found)
 const DEFAULT_CONFIG = {
-  excludeDirs: [
-    '.git',
-    'node_modules',
-    '.wrangler',
-    '.cursor'
-  ],
   excludePaths: [
-    'docs',
-    '.gadget'
+    'node_modules'  // This will exclude node_modules anywhere it appears
   ],
   excludeFiles: [
     'package-lock.json',
@@ -120,11 +113,10 @@ function loadConfig(scanDirectory) {
       const configData = fs.readFileSync(configPath, 'utf8');
       const config = JSON.parse(configData);
 
-      // Merge with defaults to ensure all required properties exist
+      // Merge with defaults - additional exclusions are additive
       return {
-        excludeDirs: config.excludeDirs || DEFAULT_CONFIG.excludeDirs,
-        excludePaths: config.excludePaths || DEFAULT_CONFIG.excludePaths,
-        excludeFiles: config.excludeFiles || DEFAULT_CONFIG.excludeFiles,
+        excludePaths: [...DEFAULT_CONFIG.excludePaths, ...(config.excludePaths || []), ...(config.excludeDirs || [])],
+        excludeFiles: [...DEFAULT_CONFIG.excludeFiles, ...(config.excludeFiles || [])],
         includeExtensions: config.includeExtensions || DEFAULT_CONFIG.includeExtensions
       };
     }
@@ -133,7 +125,11 @@ function loadConfig(scanDirectory) {
     console.warn('Using default configuration.');
   }
 
-  return DEFAULT_CONFIG;
+  return {
+    excludePaths: [...DEFAULT_CONFIG.excludePaths],
+    excludeFiles: [...DEFAULT_CONFIG.excludeFiles],
+    includeExtensions: [...DEFAULT_CONFIG.includeExtensions]
+  };
 }
 
 // Function to extract method signatures from JS file (simplified version)
@@ -259,15 +255,25 @@ const TREE_CHARS = {
 // Function to generate tree structure
 function generateTree(dirPath, level = 0, relativePath = '', isLast = true, prefix = '') {
   const config = loadConfig(customRootDir);
-  const EXCLUDE_DIRS = config.excludeDirs;
   const EXCLUDE_PATHS = config.excludePaths;
   const EXCLUDE_FILES = config.excludeFiles;
   const INCLUDE_EXTENSIONS = config.includeExtensions;
 
   function shouldExcludePath(relativePath) {
     return EXCLUDE_PATHS.some(excludePath => {
-      const pathToCheck = relativePath.endsWith('/') ? relativePath : `${relativePath}/`;
-      return pathToCheck.startsWith(`${excludePath}/`);
+      // Check if the path exactly matches the exclude pattern
+      if (relativePath === excludePath) {
+        return true;
+      }
+
+      // Check if the path starts with the exclude pattern (for subdirectories)
+      if (relativePath.startsWith(`${excludePath}/`)) {
+        return true;
+      }
+
+      // Check if the exclude pattern matches the directory name anywhere in the path
+      const pathParts = relativePath.split('/');
+      return pathParts.includes(excludePath);
     });
   }
 
@@ -278,12 +284,12 @@ function generateTree(dirPath, level = 0, relativePath = '', isLast = true, pref
 
   // Check if we've reached the maximum depth
   if (level > maxDepth) {
-    return;
+    return '';
   }
 
   // Check if this directory path should be excluded
   if (level > 0 && shouldExcludePath(relativePath)) {
-    return;
+    return '';
   }
 
   let output = '';
@@ -293,14 +299,19 @@ function generateTree(dirPath, level = 0, relativePath = '', isLast = true, pref
   const files = items
     .filter(item => {
       const itemPath = path.join(dirPath, item);
-      return !fs.statSync(itemPath).isDirectory() && !shouldExcludeFile(itemPath);
+      return !fs.statSync(itemPath).isDirectory() &&
+             !item.startsWith('.') &&
+             !shouldExcludeFile(itemPath);
     })
     .sort();
 
   const dirs = items
     .filter(item => {
       const itemPath = path.join(dirPath, item);
-      return fs.statSync(itemPath).isDirectory() && !EXCLUDE_DIRS.includes(item);
+      const itemRelativePath = path.join(relativePath, item);
+      return fs.statSync(itemPath).isDirectory() &&
+             !item.startsWith('.') &&
+             !shouldExcludePath(itemRelativePath);
     })
     .sort();
 

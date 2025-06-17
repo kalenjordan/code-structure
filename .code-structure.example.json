@@ -1,13 +1,12 @@
 {
-  "excludeDirs": [
-    ".git",
-    "node_modules",
-    ".wrangler",
-    ".gadget",
-    ".cursor"
-  ],
   "excludePaths": [
-    "api/models"
+    "node_modules",
+    "api/models",
+    "build",
+    "dist",
+    "coverage",
+    "tmp",
+    "temp"
   ],
   "excludeFiles": [
     "package-lock.json"

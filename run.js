@@ -113,15 +113,8 @@ Options:
 
 // Default configuration (fallback if config file is not found)
 const DEFAULT_CONFIG = {
-  excludeDirs: [
-    '.git',
-    'node_modules',
-    '.wrangler',
-    '.cursor'
-  ],
   excludePaths: [
-    'docs',
-    '.gadget'
+    'node_modules'  // This will exclude node_modules anywhere it appears
   ],
   excludeFiles: [
     'package-lock.json',
@@ -143,11 +136,10 @@ function loadConfig(scanDirectory) {
       const configData = fs.readFileSync(configPath, 'utf8');
       const config = JSON.parse(configData);
 
-      // Merge with defaults to ensure all required properties exist
+      // Merge with defaults - additional exclusions are additive
       return {
-        excludeDirs: config.excludeDirs || DEFAULT_CONFIG.excludeDirs,
-        excludePaths: config.excludePaths || DEFAULT_CONFIG.excludePaths,
-        excludeFiles: config.excludeFiles || DEFAULT_CONFIG.excludeFiles,
+        excludePaths: [...DEFAULT_CONFIG.excludePaths, ...(config.excludePaths || []), ...(config.excludeDirs || [])],
+        excludeFiles: [...DEFAULT_CONFIG.excludeFiles, ...(config.excludeFiles || [])],
         includeExtensions: config.includeExtensions || DEFAULT_CONFIG.includeExtensions
       };
     }
@@ -156,7 +148,11 @@ function loadConfig(scanDirectory) {
     console.warn('Using default configuration.');
   }
 
-  return DEFAULT_CONFIG;
+  return {
+    excludePaths: [...DEFAULT_CONFIG.excludePaths],
+    excludeFiles: [...DEFAULT_CONFIG.excludeFiles],
+    includeExtensions: [...DEFAULT_CONFIG.includeExtensions]
+  };
 }
 
 // Structure content
@@ -905,7 +901,9 @@ try {
     const files = items
       .filter(item => {
         const itemPath = path.join(dirPath, item);
-        return !fs.statSync(itemPath).isDirectory() && !shouldExcludeFile(itemPath);
+        return !fs.statSync(itemPath).isDirectory() &&
+               !item.startsWith('.') &&
+               !shouldExcludeFile(itemPath);
       });
 
     // Add files to collection
@@ -926,7 +924,9 @@ try {
     const dirs = items
       .filter(item => {
         const itemPath = path.join(dirPath, item);
-        return fs.statSync(itemPath).isDirectory() && !EXCLUDE_DIRS.includes(item);
+        return fs.statSync(itemPath).isDirectory() &&
+               !item.startsWith('.') &&
+               !EXCLUDE_DIRS.includes(item);
       })
       .sort();
 
