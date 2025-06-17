@@ -1,0 +1,21 @@
+{
+  "excludeDirs": [
+    ".git",
+    "node_modules",
+    ".wrangler",
+    ".gadget",
+    ".cursor"
+  ],
+  "excludePaths": [
+    "api/models"
+  ],
+  "excludeFiles": [
+    "package-lock.json"
+  ],
+  "includeExtensions": [
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".json"
+  ]
+}

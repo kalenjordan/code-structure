@@ -111,64 +111,58 @@ Options:
   process.exit(0);
 }
 
-// Directories to exclude from the scan (top-level directories)
-const EXCLUDE_DIRS = [
-  '.git',
-  'node_modules',
-  '.wrangler',
-  '.cursor'
-];
+// Default configuration (fallback if config file is not found)
+const DEFAULT_CONFIG = {
+  excludeDirs: [
+    '.git',
+    'node_modules',
+    '.wrangler',
+    '.cursor'
+  ],
+  excludePaths: [
+    'docs',
+    '.gadget'
+  ],
+  excludeFiles: [
+    'package-lock.json',
+  ],
+  includeExtensions: [
+    '.js',
+    '.mjs',
+    '.cjs',
+    '.json'
+  ]
+};
 
-// Specific directory paths to exclude (can include nested paths)
-const EXCLUDE_PATHS = [
-  'jobs/cutting',
-  'jobs/product',
-  'jobs/order',
-  'graphql',
-  'docs',
-  'tools',
-  '.gadget',
-  // Add more paths to exclude as needed:
-  // 'jobs/deprecated',
-];
+// Function to load configuration from JSON file
+function loadConfig(scanDirectory) {
+  const configPath = path.join(scanDirectory, 'codebase-structure-config.json');
 
-// Specific files to exclude
-const EXCLUDE_FILES = [
-  'package-lock.json',
-  '.shopworker.json',
-  '.shopworker.example.json',
-  // Add more files to exclude as needed:
-  // 'yarn.lock',
-  // '.gitignore',
-];
+  try {
+    if (fs.existsSync(configPath)) {
+      const configData = fs.readFileSync(configPath, 'utf8');
+      const config = JSON.parse(configData);
 
-// File extensions to include
-const INCLUDE_EXTENSIONS = [
-  '.js',
-  '.mjs',
-  '.cjs',
-  '.json'
-];
+      // Merge with defaults to ensure all required properties exist
+      return {
+        excludeDirs: config.excludeDirs || DEFAULT_CONFIG.excludeDirs,
+        excludePaths: config.excludePaths || DEFAULT_CONFIG.excludePaths,
+        excludeFiles: config.excludeFiles || DEFAULT_CONFIG.excludeFiles,
+        includeExtensions: config.includeExtensions || DEFAULT_CONFIG.includeExtensions
+      };
+    }
+  } catch (error) {
+    console.warn(`Warning: Could not read config file ${configPath}: ${error.message}`);
+    console.warn('Using default configuration.');
+  }
+
+  return DEFAULT_CONFIG;
+}
 
 // Structure content
 let content = `# Files Sorted by Line Count\nGenerated: ${new Date().toISOString()}\n\n`;
 
-// Function to check if a path should be excluded
-function shouldExcludePath(relativePath) {
-  // Check if the path is in the exclude list
-  return EXCLUDE_PATHS.some(excludePath => {
-    // Make sure the path to check ends with '/' so we match directories properly
-    const pathToCheck = relativePath.endsWith('/') ? relativePath : `${relativePath}/`;
-    // Check if the exclude path is a substring at the start of the path to check
-    return pathToCheck.startsWith(`${excludePath}/`);
-  });
-}
-
-// Function to check if a file should be excluded
-function shouldExcludeFile(filePath) {
-  const fileName = path.basename(filePath);
-  return EXCLUDE_FILES.includes(fileName);
-}
+// These functions will be defined inside the main execution block to access configuration
 
 // Function to count lines in a method body
 function countMethodLines(fileContent, node) {
@@ -864,60 +858,87 @@ function formatSignature(prefix, name, params, returnType, isArrow = false, line
   return signature;
 }
 
-// Function to scan directories
-function scanDirectory(dirPath, level = 0, relativePath = '', allFiles = []) {
-  // Check if we've reached the maximum depth
-  if (level > maxDepth) {
-    return allFiles;
-  }
-
-  // Check if this directory path should be excluded
-  if (level > 0 && shouldExcludePath(relativePath)) {
-    return allFiles;
-  }
-
-  const items = fs.readdirSync(dirPath);
-
-  // Get all files first
-  const files = items
-    .filter(item => {
-      const itemPath = path.join(dirPath, item);
-      return !fs.statSync(itemPath).isDirectory() && !shouldExcludeFile(itemPath);
-    });
-
-  // Add files to collection
-  for (const file of files) {
-    const filePath = path.join(dirPath, file);
-    const fileRelativePath = path.join(relativePath, file);
-    let lineCount = 0;
-    try {
-      const fileContent = fs.readFileSync(filePath, 'utf8');
-      lineCount = fileContent.split('\n').length;
-    } catch (error) {
-      console.error(`Error counting lines in ${filePath}: ${error.message}`);
-    }
-    allFiles.push({ filePath, relativePath: fileRelativePath, lineCount });
-  }
-
-  // Then process directories
-  const dirs = items
-    .filter(item => {
-      const itemPath = path.join(dirPath, item);
-      return fs.statSync(itemPath).isDirectory() && !EXCLUDE_DIRS.includes(item);
-    })
-    .sort();
-
-  for (const dir of dirs) {
-    const nextDirPath = path.join(dirPath, dir);
-    const nextRelativePath = path.join(relativePath, dir);
-    scanDirectory(nextDirPath, level + 1, nextRelativePath, allFiles);
-  }
-
-  return allFiles;
-}
+// This function will be defined inside the main execution block
 
 // Main execution
 try {
+  // Load configuration from the project being scanned
+  const config = loadConfig(customRootDir);
+
+    // Set the configuration variables for use throughout the script
+  const EXCLUDE_DIRS = config.excludeDirs;
+  const EXCLUDE_PATHS = config.excludePaths;
+  const EXCLUDE_FILES = config.excludeFiles;
+  const INCLUDE_EXTENSIONS = config.includeExtensions;
+
+  // Helper functions that use the loaded configuration
+  function shouldExcludePath(relativePath) {
+    // Check if the path is in the exclude list
+    return EXCLUDE_PATHS.some(excludePath => {
+      // Make sure the path to check ends with '/' so we match directories properly
+      const pathToCheck = relativePath.endsWith('/') ? relativePath : `${relativePath}/`;
+      // Check if the exclude path is a substring at the start of the path to check
+      return pathToCheck.startsWith(`${excludePath}/`);
+    });
+  }
+
+  function shouldExcludeFile(filePath) {
+    const fileName = path.basename(filePath);
+    return EXCLUDE_FILES.includes(fileName);
+  }
+
+  // Function to scan directories
+  function scanDirectory(dirPath, level = 0, relativePath = '', allFiles = []) {
+    // Check if we've reached the maximum depth
+    if (level > maxDepth) {
+      return allFiles;
+    }
+
+    // Check if this directory path should be excluded
+    if (level > 0 && shouldExcludePath(relativePath)) {
+      return allFiles;
+    }
+
+    const items = fs.readdirSync(dirPath);
+
+    // Get all files first
+    const files = items
+      .filter(item => {
+        const itemPath = path.join(dirPath, item);
+        return !fs.statSync(itemPath).isDirectory() && !shouldExcludeFile(itemPath);
+      });
+
+    // Add files to collection
+    for (const file of files) {
+      const filePath = path.join(dirPath, file);
+      const fileRelativePath = path.join(relativePath, file);
+      let lineCount = 0;
+      try {
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        lineCount = fileContent.split('\n').length;
+      } catch (error) {
+        console.error(`Error counting lines in ${filePath}: ${error.message}`);
+      }
+      allFiles.push({ filePath, relativePath: fileRelativePath, lineCount });
+    }
+
+    // Then process directories
+    const dirs = items
+      .filter(item => {
+        const itemPath = path.join(dirPath, item);
+        return fs.statSync(itemPath).isDirectory() && !EXCLUDE_DIRS.includes(item);
+      })
+      .sort();
+
+    for (const dir of dirs) {
+      const nextDirPath = path.join(dirPath, dir);
+      const nextRelativePath = path.join(relativePath, dir);
+      scanDirectory(nextDirPath, level + 1, nextRelativePath, allFiles);
+    }
+
+    return allFiles;
+  }
+
   console.log(`Generating codebase structure...`);
   console.log(`Directory to scan: ${customRootDir}`);
   console.log(`Output file: ${outputFile}`);
